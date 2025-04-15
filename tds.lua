@@ -1,193 +1,197 @@
--- Macro System with GUI
-local HttpService = game:GetService("HttpService")
+-- SERVICES
 local Players = game:GetService("Players")
-local UIS = game:GetService("UserInputService")
-local Player = Players.LocalPlayer
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local HttpService = game:GetService("HttpService")
+local LocalPlayer = Players.LocalPlayer
 
--- Remote setup
-local towerService = game:GetService("ReplicatedStorage")
-    :WaitForChild("ReplicatedStorage_Source")
-    :WaitForChild("Packages")
-    :WaitForChild("Knit")
-    :WaitForChild("Services")
-    :WaitForChild("TowerDefenceTowersService")
-    :WaitForChild("RF")
+-- GUI PATHS
+local cashLabel = LocalPlayer.PlayerGui:WaitForChild("ReactUniversalHotbar").Frame.values.cash
+local waveLabel = LocalPlayer.PlayerGui:WaitForChild("ReactGameTopGameDisplay").Frame.wave
 
-local placeTower = towerService:WaitForChild("PlaceTower")
-local upgradeTower = towerService:WaitForChild("UpgradeTower")
+-- GUI SETUP
+local ScreenGui = Instance.new("ScreenGui", LocalPlayer:WaitForChild("PlayerGui"))
+ScreenGui.Name = "MacroUI"
+local Frame = Instance.new("Frame", ScreenGui)
+Frame.Size = UDim2.new(0, 220, 0, 130)
+Frame.Position = UDim2.new(0, 20, 0, 200)
+Frame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+Frame.BorderSizePixel = 0
 
-local placementPart = workspace:WaitForChild("TowerDefence")
-    :WaitForChild("PlacementZones")
-    :WaitForChild("Part")
-
--- Filepath setup
-local macroFolder = "workspace/macros"
-if not isfolder(macroFolder) then
-    makefolder(macroFolder)
+local function createLabel(text, y)
+	local label = Instance.new("TextLabel", Frame)
+	label.Text = text
+	label.Size = UDim2.new(1, -10, 0, 20)
+	label.Position = UDim2.new(0, 5, 0, y)
+	label.BackgroundTransparency = 1
+	label.TextColor3 = Color3.new(1, 1, 1)
+	label.TextXAlignment = Enum.TextXAlignment.Left
+	label.Font = Enum.Font.SourceSans
+	label.TextSize = 16
+	return label
 end
 
--- State
-local currentMacroName = nil
-local recording = false
-local playing = false
-local recordedActions = {}
-local startTime = nil
+local function createDropdown(options, y)
+	local dropdown = Instance.new("TextButton", Frame)
+	dropdown.Size = UDim2.new(1, -10, 0, 20)
+	dropdown.Position = UDim2.new(0, 5, 0, y)
+	dropdown.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+	dropdown.TextColor3 = Color3.new(1, 1, 1)
+	dropdown.Font = Enum.Font.SourceSans
+	dropdown.TextSize = 16
+	dropdown.Text = "Select Macro"
 
--- Cash helper
+	local selected
+	local function updateOptions()
+		local dropdownMenu = Instance.new("Frame", Frame)
+		dropdownMenu.Position = UDim2.new(0, 5, 0, y + 20)
+		dropdownMenu.Size = UDim2.new(1, -10, 0, math.min(#options * 20, 100))
+		dropdownMenu.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+		dropdownMenu.ClipsDescendants = true
+
+		for _, name in ipairs(options) do
+			local btn = Instance.new("TextButton", dropdownMenu)
+			btn.Size = UDim2.new(1, 0, 0, 20)
+			btn.Position = UDim2.new(0, 0, 0, (#dropdownMenu:GetChildren() - 1) * 20)
+			btn.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+			btn.TextColor3 = Color3.new(1, 1, 1)
+			btn.Text = name
+			btn.Font = Enum.Font.SourceSans
+			btn.TextSize = 16
+			btn.MouseButton1Click:Connect(function()
+				dropdown.Text = name
+				selected = name
+				dropdownMenu:Destroy()
+			end)
+		end
+	end
+
+	dropdown.MouseButton1Click:Connect(updateOptions)
+
+	return dropdown, function() return selected end
+end
+
+local function createToggle(labelText, y)
+	local toggle = Instance.new("TextButton", Frame)
+	toggle.Size = UDim2.new(1, -10, 0, 20)
+	toggle.Position = UDim2.new(0, 5, 0, y)
+	toggle.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+	toggle.TextColor3 = Color3.new(1, 1, 1)
+	toggle.Font = Enum.Font.SourceSans
+	toggle.TextSize = 16
+	toggle.Text = "[ ] " .. labelText
+
+	local active = false
+	toggle.MouseButton1Click:Connect(function()
+		active = not active
+		toggle.Text = active and "[✔] " .. labelText or "[ ] " .. labelText
+	end)
+
+	return toggle, function() return active end
+end
+
 local function getCash()
-    local moneyLabel = Player.PlayerGui:WaitForChild("LocalCoreGui")
-        .GameInformation.MoneyFrame.Frame.Money
-    local text = moneyLabel.Text:gsub("[^%d]", "")
-    return tonumber(text) or 0
+	local text = cashLabel.Text:gsub("[^%d]", "")
+	return tonumber(text) or 0
 end
 
-local function waitForCashAndInvoke(minCash, callback)
-    repeat
-        while getCash() < minCash do wait(0.5) end
-        local success = pcall(callback)
-        if not success then wait(1) end
-    until success
-    wait(1)
+-- FILE SYSTEM
+local folder = "workspace/macros"
+if not isfolder("workspace") then makefolder("workspace") end
+if not isfolder(folder) then makefolder(folder) end
+
+local function saveMacro(name, data)
+	writefile(folder .. "/" .. name .. ".json", HttpService:JSONEncode(data))
 end
 
--- Action Wrappers (override remotes for recording)
-local origPlace = placeTower.InvokeServer
-placeTower.InvokeServer = function(self, towerName, pos, part)
-    if recording and currentMacroName then
-        table.insert(recordedActions, {
-            time = tick() - startTime,
-            type = "place",
-            tower = towerName,
-            position = { X = pos.X, Y = pos.Y, Z = pos.Z }
-        })
-    end
-    return origPlace(self, towerName, pos, part)
+local function loadMacro(name)
+	local path = folder .. "/" .. name .. ".json"
+	if isfile(path) then
+		local content = readfile(path)
+		return HttpService:JSONDecode(content)
+	end
 end
 
-local origUpgrade = upgradeTower.InvokeServer
-upgradeTower.InvokeServer = function(self, index)
-    if recording and currentMacroName then
-        table.insert(recordedActions, {
-            time = tick() - startTime,
-            type = "upgrade",
-            index = index
-        })
-    end
-    return origUpgrade(self, index)
+local function listMacros()
+	local list = {}
+	for _, file in ipairs(listfiles(folder)) do
+		table.insert(list, file:match("([^/\\]+)%.json$"))
+	end
+	return list
 end
 
--- Playback Logic
-local function playMacro(data)
-    playing = true
-    local start = tick()
-    for _, action in ipairs(data) do
-        local waitTime = action.time - (tick() - start)
-        if waitTime > 0 then wait(waitTime) end
+-- GUI ELEMENTS
+createLabel("Create New Macro:", 5)
+local nameBox = Instance.new("TextBox", Frame)
+nameBox.Size = UDim2.new(1, -10, 0, 20)
+nameBox.Position = UDim2.new(0, 5, 0, 25)
+nameBox.PlaceholderText = "Enter macro name"
+nameBox.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+nameBox.TextColor3 = Color3.new(1, 1, 1)
+nameBox.Font = Enum.Font.SourceSans
+nameBox.TextSize = 16
 
-        if action.type == "place" then
-            local pos = Vector3.new(action.position.X, action.position.Y, action.position.Z)
-            waitForCashAndInvoke(300, function()
-                placeTower:InvokeServer("Cashier", pos, placementPart)
-            end)
-        elseif action.type == "upgrade" then
-            waitForCashAndInvoke(400, function()
-                upgradeTower:InvokeServer(action.index)
-            end)
-        end
-    end
-    playing = false
-end
-
--- GUI
-local gui = Instance.new("ScreenGui", Player:WaitForChild("PlayerGui"))
-gui.Name = "MacroUI"
-gui.ResetOnSpawn = false
-
-local frame = Instance.new("Frame", gui)
-frame.Size = UDim2.new(0, 300, 0, 200)
-frame.Position = UDim2.new(0, 100, 0, 100)
-frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-frame.BorderSizePixel = 0
-frame.Active = true
-frame.Draggable = true
-
-local title = Instance.new("TextLabel", frame)
-title.Size = UDim2.new(1, 0, 0, 30)
-title.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-title.Text = "⚙️ Macro Manager"
-title.TextColor3 = Color3.new(1, 1, 1)
-title.TextScaled = true
-
--- Dropdown for macros
-local macroDropdown = Instance.new("TextBox", frame)
-macroDropdown.PlaceholderText = "Enter Macro Name"
-macroDropdown.Position = UDim2.new(0, 10, 0, 40)
-macroDropdown.Size = UDim2.new(0, 200, 0, 30)
-macroDropdown.Text = ""
-
--- Create Button
-local createButton = Instance.new("TextButton", frame)
-createButton.Position = UDim2.new(0, 220, 0, 40)
-createButton.Size = UDim2.new(0, 70, 0, 30)
-createButton.Text = "Create"
-
--- Record Checkbox
-local recordToggle = Instance.new("TextButton", frame)
-recordToggle.Position = UDim2.new(0, 10, 0, 80)
-recordToggle.Size = UDim2.new(0, 140, 0, 30)
-recordToggle.Text = "☐ Record Macro"
-
--- Play Checkbox
-local playToggle = Instance.new("TextButton", frame)
-playToggle.Position = UDim2.new(0, 160, 0, 80)
-playToggle.Size = UDim2.new(0, 130, 0, 30)
-playToggle.Text = "☐ Play Macro"
-
--- UI Behavior
-createButton.MouseButton1Click:Connect(function()
-    local name = macroDropdown.Text
-    if name and name ~= "" then
-        local path = macroFolder.."/"..name..".json"
-        writefile(path, "[]")
-        print("✅ Created macro:", name)
-    end
+nameBox.FocusLost:Connect(function(enterPressed)
+	if enterPressed then
+		local newName = nameBox.Text
+		if newName ~= "" then
+			saveMacro(newName, {})
+			nameBox.Text = ""
+			print("Macro created:", newName)
+		end
+	end
 end)
 
-recordToggle.MouseButton1Click:Connect(function()
-    if not recording then
-        local name = macroDropdown.Text
-        if name and name ~= "" then
-            currentMacroName = name
-            recordedActions = {}
-            startTime = tick()
-            recording = true
-            recordToggle.Text = "☑ Recording..."
-            print("🎥 Recording started:", name)
-        end
-    else
-        recording = false
-        recordToggle.Text = "☐ Record Macro"
-        local path = macroFolder.."/"..currentMacroName..".json"
-        writefile(path, HttpService:JSONEncode(recordedActions))
-        print("💾 Recording saved to", path)
-    end
-end)
+createLabel("Record Macro:", 50)
+local recordDropdown, getRecordName = createDropdown(listMacros(), 70)
+local recordToggle, isRecording = createToggle("Recording", 90)
 
-playToggle.MouseButton1Click:Connect(function()
-    if not playing then
-        local name = macroDropdown.Text
-        local path = macroFolder.."/"..name..".json"
-        if isfile(path) then
-            local data = HttpService:JSONDecode(readfile(path))
-            playToggle.Text = "☑ Playing..."
-            task.spawn(function()
-                playMacro(data)
-                playToggle.Text = "☐ Play Macro"
-            end)
-        else
-            warn("❌ Macro not found:", name)
-        end
-    else
-        warn("Already playing a macro.")
-    end
+createLabel("Play Macro:", 115)
+local playDropdown, getPlayName = createDropdown(listMacros(), 135)
+local playToggle, isPlaying = createToggle("Auto Play", 155)
+
+-- RECORDING
+local currentRecording = {}
+
+local originalInvokeServer = game:GetService("ReplicatedStorage").RemoteFunction.InvokeServer
+game:GetService("ReplicatedStorage").RemoteFunction.InvokeServer = function(self, ...)
+	local args = {...}
+	if isRecording() then
+		table.insert(currentRecording, args)
+	end
+	return originalInvokeServer(self, unpack(args))
+end
+
+-- WATCH FOR MATCH START
+task.spawn(function()
+	local lastWave = "Wave 0"
+	while true do
+		local waveText = waveLabel.Text
+		if waveText ~= lastWave and waveText ~= "Wave 0" then
+			lastWave = waveText
+			if isRecording() then
+				local macroName = getRecordName()
+				if macroName then
+					saveMacro(macroName, currentRecording)
+					print("Macro saved:", macroName)
+					currentRecording = {}
+				end
+			end
+			if isPlaying() then
+				local macroName = getPlayName()
+				local data = loadMacro(macroName)
+				if data then
+					task.spawn(function()
+						for _, args in ipairs(data) do
+							repeat wait(0.2) until getCash() >= 100 -- replace 100 with smarter logic later
+							pcall(function()
+								ReplicatedStorage.RemoteFunction:InvokeServer(unpack(args))
+							end)
+							wait(1)
+						end
+					end)
+				end
+			end
+		end
+		wait(1)
+	end
 end)
