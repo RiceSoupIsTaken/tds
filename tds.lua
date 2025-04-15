@@ -160,22 +160,66 @@ playBtn.MouseButton1Click:Connect(function()
 end)
 
 -- Auto playback on match start
-task.spawn(function()
-    local Players = game:GetService("Players")
-    local player = Players.LocalPlayer
-    local waveDisplay = player:WaitForChild("PlayerGui")
-        :WaitForChild("ReactGameTopGameDisplay").Frame.wave
-
-    local lastWave = "Wave 0"
-    while true do
-        wait(1)
-        local waveText = waveDisplay.Text
-        if waveText ~= lastWave then
-            lastWave = waveText
-            if waveText:match("Wave 1") then
-                print("-- Detected match start")
-                playBtn:Activate()
-            end
-        end
+-- Add this section to your playback logic
+local function loadMacro(name)
+    local path = "workspace/macros/" .. name .. ".txt"
+    if not isfile(path) then
+        warn("[Macro Playback] Macro file not found: " .. name)
+        return nil
     end
-end)
+    local contents = readfile(path)
+    local success, data = pcall(function()
+        return game:GetService("HttpService"):JSONDecode(contents)
+    end)
+    if not success then
+        warn("[Macro Playback] Failed to decode macro file:", data)
+        return nil
+    end
+    print("[Macro Playback] Loaded macro:", name, "(" .. #data .. " actions)")
+    return data
+end
+
+local function playbackMacro(macroData)
+    for index, action in ipairs(macroData) do
+        print("[Macro Playback] Action", index, ":", action.type, action.unit or "", action.position or "", action.rotation or "")
+
+        local args
+        if action.type == "place" then
+            args = {
+                "Troops",
+                "Pl\208\176ce",
+                {
+                    Position = loadstring("return " .. action.position)(),
+                    Rotation = loadstring("return " .. action.rotation)()
+                },
+                action.unit
+            }
+        elseif action.type == "upgrade" then
+            args = {
+                "Troops",
+                "Upgrade",
+                "Set",
+                {
+                    Troop = workspace:FindFirstChild("Towers") and workspace.Towers:FindFirstChild(action.name),
+                    Path = 1
+                }
+            }
+        else
+            warn("[Macro Playback] Unknown action type:", action.type)
+            continue
+        end
+
+        print("[Macro Playback] Calling RemoteFunction with args:", unpack(args))
+        local success, result = pcall(function()
+            return game:GetService("ReplicatedStorage").RemoteFunction:InvokeServer(unpack(args))
+        end)
+
+        if success then
+            print("[Macro Playback] Action", index, "success ✅")
+        else
+            warn("[Macro Playback] Action", index, "failed ❌", result)
+        end
+
+        wait(0.5) -- slight delay between actions
+    end
+end
