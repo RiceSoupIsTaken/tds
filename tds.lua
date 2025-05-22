@@ -101,7 +101,7 @@ for v22, v23 in ipairs(v8) do
 	v7(v23.args, v23.cost);
 end
 print("All towers placed. Starting 60-second timer and upgrades...");
-local v9 = task.delay(250, function()
+local v9 = task.delay(260, function()
 	v1:Teleport(3260590765 - (262 + 176));
 end);
 local v10 = workspace:WaitForChild("Towers");
