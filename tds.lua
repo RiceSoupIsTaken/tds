@@ -3,9 +3,7 @@ local TeleportService = game:GetService("TeleportService")
 local remoteFunction = ReplicatedStorage:WaitForChild("RemoteFunction")
 local player = game.Players.LocalPlayer
 
--- === LOBBY CHECK & AUTO-JOIN ===
 if workspace:FindFirstChild("Elevators") then
-    -- In lobby: Join Halloween match
     local args = {
         [1] = "Multiplayer",
         [2] = "v2:start",
@@ -16,12 +14,10 @@ if workspace:FindFirstChild("Elevators") then
     }
     remoteFunction:InvokeServer(unpack(args))
 else
-    -- Not in lobby: Skip vote immediately
     remoteFunction:InvokeServer("Voting", "Skip")
-    task.wait(1) -- Brief pause after skipping
+    task.wait(1)
 end
 
--- === CASH CHECK & PARSER ===
 local guiPath = player:WaitForChild("PlayerGui")
     :WaitForChild("ReactUniversalHotbar")
     :WaitForChild("Frame")
@@ -41,28 +37,21 @@ local function waitForCash(minAmount)
     end
 end
 
--- === SAFE PLACEMENT ===
 local function safeInvoke(args, cost)
     waitForCash(cost)
     local success, err = pcall(function()
         remoteFunction:InvokeServer(unpack(args))
     end)
-    if not success then
-        warn("Error:", err)
-    end
     task.wait(1)
 end
 
--- === TOWER PLACEMENT SEQUENCE ===
 local sequence = {
-    -- Shotgunners
     { args = { "Troops", "Pl\208\176ce", { Rotation = CFrame.new(), Position = Vector3.new(4.668, 2.349, -37.184) }, "Shotgunner" }, cost = 300 },
     { args = { "Troops", "Pl\208\176ce", { Rotation = CFrame.new(), Position = Vector3.new(-1.643, 2.349, -36.870) }, "Shotgunner" }, cost = 300 },
     { args = { "Troops", "Pl\208\176ce", { Rotation = CFrame.new(), Position = Vector3.new(4.487, 2.386, -34.154) }, "Shotgunner" }, cost = 300 },
     { args = { "Troops", "Pl\208\176ce", { Rotation = CFrame.new(), Position = Vector3.new(-1.185, 2.386, -33.905) }, "Shotgunner" }, cost = 300 },
     { args = { "Troops", "Pl\208\176ce", { Rotation = CFrame.new(), Position = Vector3.new(-0.616, 2.386, -30.504) }, "Shotgunner" }, cost = 300 },
 
-    -- Trappers
     { args = { "Troops", "Pl\208\176ce", { Rotation = CFrame.new(), Position = Vector3.new(7.143, 2.350, -39.064) }, "Trapper" }, cost = 500 },
     { args = { "Troops", "Pl\208\176ce", { Rotation = CFrame.new(), Position = Vector3.new(7.671, 2.386, -35.299) }, "Trapper" }, cost = 500 },
     { args = { "Troops", "Pl\208\176ce", { Rotation = CFrame.new(), Position = Vector3.new(-4.269, 2.349, -38.972) }, "Trapper" }, cost = 500 },
@@ -72,22 +61,17 @@ local sequence = {
     { args = { "Troops", "Pl\208\176ce", { Rotation = CFrame.new(), Position = Vector3.new(3.450, 2.386, -25.265) }, "Trapper" }, cost = 500 },
 }
 
--- === RUN PLACEMENT ===
 for _, step in ipairs(sequence) do
     safeInvoke(step.args, step.cost)
 end
 
-
--- === PARALLEL EXECUTION ===
 local timerThread = task.delay(260, function()
-    TeleportService:Teleport(3260590327) -- TDS PlaceID
+    TeleportService:Teleport(3260590327)
 end)
 
--- === UPGRADE LOOP (runs parallel to timer) ===
 local towerFolder = workspace:WaitForChild("Towers")
 while true do
     local towers = towerFolder:GetChildren()
-
     for i, tower in ipairs(towers) do
         local args = {
             "Troops",
